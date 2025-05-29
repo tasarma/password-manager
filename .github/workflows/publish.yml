@@ -4,19 +4,6 @@ on:
   push:
     branches:
       - release
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      draft:
-        description: 'Create draft release'
-        required: false
-        default: true
-        type: boolean
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
   publish-tauri:
@@ -28,149 +15,68 @@ jobs:
         include:
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
-            target: 'aarch64-apple-darwin'
-          - platform: 'macos-latest' 
+          - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
-            target: 'x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
-            target: ''
           - platform: 'windows-latest'
             args: ''
-            target: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
-      - name: Setup Rust toolchain
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      
+      - name: Setup vcpkg and install OpenSSL
+        if: matrix.platform == 'windows-latest'
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git 
+          cd vcpkg
+          ./bootstrap-vcpkg.bat
+          ./vcpkg install openssl:x64-windows
+          echo "VCPKG_ROOT=$(pwd)" >> $GITHUB_ENV
 
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          cache-on-failure: true
+      - name: Set OpenSSL environment variables
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          VCPKG_INSTALLED_DIR="$PWD/installed/x64-windows"
 
-      - name: Setup system dependencies (Linux)
+      - name: Install dependencies (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev \
-            pkg-config
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Setup OpenSSL (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          
-          # Create directories
-          New-Item -ItemType Directory -Force -Path "C:\OpenSSL"
-          New-Item -ItemType Directory -Force -Path "C:\Temp"
-          
-          # Download and extract OpenSSL
-          $url = "https://github.com/firedaemon/openssl/releases/download/v3.5.0/FireDaemon-OpenSSL-3.5.0-x64.zip"
-          $zipPath = "C:\Temp\openssl.zip"
-          
-          Write-Host "Downloading OpenSSL..."
-          Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
-          
-          Write-Host "Extracting OpenSSL..."
-          Expand-Archive -Path $zipPath -DestinationPath "C:\Temp\openssl" -Force
-          
-          # Copy files
-          Copy-Item -Path "C:\Temp\openssl\x64\*" -Destination "C:\OpenSSL\" -Recurse -Force
-          Copy-Item -Path "C:\Temp\openssl\ssl" -Destination "C:\OpenSSL\ssl" -Recurse -Force
-          
-          # Set environment variables
-          echo "OPENSSL_DIR=C:/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "OPENSSL_STATIC=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          
-          Write-Host "OpenSSL setup completed"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Build frontend
         run: pnpm build
 
-      - name: Build and release Tauri app
+      - name: Tauri build and release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: app-v__VERSION__
           releaseName: 'App v__VERSION__'
-          releaseBody: |
-            ## What's Changed
-            
-            This release includes bug fixes and improvements.
-            
-            ## Installation
-            
-            - **Windows**: Download and run the `.msi` installer
-            - **macOS**: Download the `.dmg` file and drag to Applications
-            - **Linux**: Download the `.AppImage` and make it executable
-            
-            ## Checksums
-            
-            All binaries are signed and checksums are provided for verification.
-          releaseDraft: ${{ github.event.inputs.draft == 'true' || github.event_name == 'push' }}
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-          includeUpdaterJson: true
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
           projectPath: src-tauri
           args: ${{ matrix.args }}
-
-  # Optional: Create a summary of the build
-  build-summary:
-    needs: publish-tauri
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Build Summary
-        run: |
-          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS (ARM64) | ${{ needs.publish-tauri.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS (Intel) | ${{ needs.publish-tauri.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Linux | ${{ needs.publish-tauri.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Windows | ${{ needs.publish-tauri.result }} |" >> $GITHUB_STEP_SUMMARY
