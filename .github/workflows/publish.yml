@@ -30,23 +30,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       
-      # 🔧 OpenSSL fix for Windows
-      - name: Install OpenSSL (Windows only)
-        if: matrix.platform == 'windows-latest'
-        run: choco install openssl -y
-
-      - name: Set environment variables for OpenSSL (Windows only)
+      - name: Download and set up OpenSSL from ZIP (Windows only)
         if: matrix.platform == 'windows-latest'
         shell: bash
         run: |
-          echo "OPENSSL_DIR=/c/Program Files/OpenSSL-Win64" >> $GITHUB_ENV
+          curl -LO https://github.com/firedaemon/openssl/releases/download/v3.5.0/FireDaemon-OpenSSL-3.5.0-x64.zip
+          7z x FireDaemon-OpenSSL-3.5.0-x64.zip -oC:\Temp\openssl
+          robocopy "C:\Temp\openssl\x64" "C:\OpenSSL" /E
+          robocopy "C:\Temp\openssl\ssl" "C:\OpenSSL\ssl" /E
+          echo "OPENSSL_DIR=C:/OpenSSL" >> $GITHUB_ENV
           echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
 
       - name: Install dependencies (Linux only)
