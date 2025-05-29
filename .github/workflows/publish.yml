@@ -37,16 +37,20 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       
-      - name: Download and set up OpenSSL from ZIP (Windows only)
+      - name: Setup vcpkg and install OpenSSL
+        if: matrix.platform == 'windows-latest'
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git 
+          cd vcpkg
+          ./bootstrap-vcpkg.bat
+          ./vcpkg install openssl:x64-windows
+          echo "VCPKG_ROOT=$(pwd)" >> $GITHUB_ENV
+
+      - name: Set OpenSSL environment variables
         if: matrix.platform == 'windows-latest'
         shell: bash
         run: |
-          curl -LO https://github.com/firedaemon/openssl/releases/download/v3.5.0/FireDaemon-OpenSSL-3.5.0-x64.zip
-          7z x FireDaemon-OpenSSL-3.5.0-x64.zip -oC:\Temp\openssl
-          robocopy "C:\Temp\openssl\x64" "C:\OpenSSL" /E
-          robocopy "C:\Temp\openssl\ssl" "C:\OpenSSL\ssl" /E
-          echo "OPENSSL_DIR=C:/OpenSSL" >> $GITHUB_ENV
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          VCPKG_INSTALLED_DIR="$PWD/installed/x64-windows"
 
       - name: Install dependencies (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
