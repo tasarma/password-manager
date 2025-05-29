@@ -1,3 +1,10 @@
+name: publish
+
+on:
+  push:
+    branches:
+      - release
+
 jobs:
   publish-tauri:
     permissions:
@@ -29,7 +36,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
+      
       # 🔧 OpenSSL fix for Windows
       - name: Install OpenSSL (Windows only)
         if: matrix.platform == 'windows-latest'
