@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VaultPass - Password Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <div class="logo">
+                <i class="fas fa-lock"></i>
+                <span>VaultPass</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Auth Container - Only shown when not logged in -->
+    <div class="container" id="authContainer">
+        <div class="centered-container" style="text-align: center;">
+            <p style="font-size: 1.2em; color: #f10606;">If you forget your password, encrypted database is NOT recoverable.  </p>
+        </div>
+        <div class="auth-card">
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="loginTab">Login</button>
+                <button class="auth-tab" id="registerTab">Register</button>
+            </div>
+            <div class="auth-form-container">
+                <!-- Login Form -->
+                <form id="loginForm" class="auth-form">
+                    <div class="form-group">
+                        <label for="loginPassword">Master Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="loginPassword" class="form-control" required style="padding-right: 40px;">
+                            <button type="button" id="loginTogglePassword" class="btn btn-outline" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); color: var(--dark-color); border: none; background: none; padding: 5px;">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-block">Login</button>
+                    </div>
+                </form>
+                
+                <!-- Register Form -->
+                <form id="registerForm" class="auth-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="registerPassword">Create Master Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="registerPassword" class="form-control" required style="padding-right: 40px;">
+                            <button type="button" id="registerTogglePassword" class="btn btn-outline" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); color: var(--dark-color); border: none; background: none; padding: 5px;">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirm Master Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="confirmPassword" class="form-control" required style="padding-right: 40px;">
+                            <button type="button" id="confirmTogglePassword" class="btn btn-outline" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); color: var(--dark-color); border: none; background: none; padding: 5px;">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="encryptDb">Would you like to encrypt the database?</label>
+                        <select id="encryptDb" class="form-control" required>
+                            <option value="" disabled selected>Select an option</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-block">Register</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="mainContainer" style="display: none;">
+        <div class="main-content">
+            <aside class="sidebar">
+                <ul class="sidebar-menu">
+                    <li>
+                        <a href="#" class="active" data-section="dashboard">
+                            <i class="fas fa-home"></i>
+                            <span>Dashboard</span>
+                        </a>
+                    </li>
+                    <li id="logoutItem">
+                        <a href="#" data-section="logout">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>Logout</span>
+                        </a>
+                    </li>
+                </ul>
+            </aside>
+
+            <main class="dashboard">
+                <div class="section-header">
+                    <h2 class="section-title">My Passwords</h2>
+                    <button class="btn btn-primary" id="addPasswordBtn">
+                        <i class="fas fa-plus"></i>
+                        <span>Add Password</span>
+                    </button>
+                </div>
+                <div>
+                  <input type="text" id="searchInput" placeholder="Search passwords..." />
+                </div>
+                <div class="password-list" id="passwordList">
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!--Add Password Modal -->
+    <div class="modal" id="passwordModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Password</h3>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <form id="passwordForm">
+                <div class="form-group">
+                    <label for="formTitle">Title</label>
+                    <input type="text" id="formTitle" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="formUsername">Username/Email</label>
+                    <input type="text" id="formUsername" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="formUrl">Website URL</label>
+                    <input type="url" id="formUrl" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="formPassword">Password</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="password" id="formPassword" class="form-control" style="flex: 1;" required>
+                        <!--<button type="button" id="generatePassword" class="btn btn-outline" style="color: var(--dark-color); border-color: #e2e8f0;">-->
+                        <!--    <i class="fas fa-random"></i>-->
+                        <!--</button>-->
+                        <button type="button" id="togglePassword" class="btn btn-outline" style="color: var(--dark-color); border-color: #e2e8f0;">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="password-strength">
+                        <div class="strength-meter" id="strengthMeter"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="formNotes">Notes</label>
+                    <textarea id="formNotes" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" style="color: var(--dark-color); border-color: #e2e8f0;" id="cancelPassword">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary" id="savePassword">
+                        Save Password
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+     <!--Toast Notification -->
+    <div class="toast" id="toast"></div>
+</body>
+</html>
