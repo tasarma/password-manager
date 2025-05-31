@@ -36,50 +36,44 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-      
-      - name: windows-vcpkg
-        runs-on: windows-latest
-        steps:
-          uses: actions/checkout@v4
-          uses: sfackler/actions/rustup@master
-          run: echo "version=$(rustc --version)" >> $GITHUB_OUTPUT
-          id: rust-version
-          run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
-          run: vcpkg install openssl:x64-windows-static-md
-          uses: actions/cache@v4
-          with:
-            path: ~/.cargo/registry/index
-            key: index-${{ runner.os }}-${{ github.run_number }}
-            restore-keys: |
-              index-${{ runner.os }}-
-          run: cargo generate-lockfile
-          uses: actions/cache@v4
-          with:
-            path: ~/.cargo/registry/cache
-            key: registry-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}
-          run: cargo fetch
-          uses: actions/cache@v4
-          with:
-            path: target
-            key: target-${{ github.job }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}
-          # - run: cargo run -p systest
-          run: cargo test -p openssl
-          run: cargo test -p openssl-errors
 
-      # - name: Setup vcpkg and install OpenSSL
-      #   if: matrix.platform == 'windows-latest'
-      #   run: |
-      #     git clone https://github.com/microsoft/vcpkg.git 
-      #     cd vcpkg
-      #     ./bootstrap-vcpkg.bat
-      #     ./vcpkg install openssl:x64-windows
-      #     echo "VCPKG_ROOT=$(pwd)" >> $GITHUB_ENV
-      #
-      # - name: Set OpenSSL environment variables
-      #   if: matrix.platform == 'windows-latest'
-      #   shell: bash
-      #   run: |
-      #     VCPKG_INSTALLED_DIR="$PWD/installed/x64-windows"
+      # Windows-specific setup
+      - name: Set VCPKG_ROOT (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install OpenSSL via vcpkg (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: vcpkg install openssl:x64-windows-static-md
+
+      - name: Cache Cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/index
+          key: index-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            index-${{ runner.os }}-
+
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/cache
+          key: registry-${{ runner.os }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Cache Cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: target-${{ github.job }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Run OpenSSL tests (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cargo test -p openssl
+          cargo test -p openssl-errors
 
       - name: Install dependencies (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
