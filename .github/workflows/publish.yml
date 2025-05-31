@@ -36,45 +36,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      # Windows-specific setup
-      - name: Set VCPKG_ROOT (Windows only)
-        if: matrix.platform == 'windows-latest'
-        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Install OpenSSL via vcpkg (Windows only)
-        if: matrix.platform == 'windows-latest'
-        run: vcpkg install openssl:x64-windows-static-md
-
-      - name: Cache Cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry/index
-          key: index-${{ runner.os }}-${{ github.run_number }}
-          restore-keys: |
-            index-${{ runner.os }}-
-
-      - name: Generate Cargo.lock
-        run: cargo generate-lockfile
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry/cache
-          key: registry-${{ runner.os }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-
-      - name: Cache Cargo target
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: target-${{ github.job }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-
-      - name: Run OpenSSL tests (Windows only)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          cargo test -p openssl
-          cargo test -p openssl-errors
-
+      
       - name: Install dependencies (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -103,3 +65,43 @@ jobs:
           prerelease: false
           projectPath: src-tauri
           args: ${{ matrix.args }}
+      
+      # Windows-specific setup
+      - name: Set VCPKG_ROOT (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install OpenSSL via vcpkg (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: vcpkg install openssl:x64-windows-static-md
+
+      - name: Cache Cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/index
+          key: index-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            index-${{ runner.os }}-
+
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+        working-directory: src-tauri
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/cache
+          key: registry-${{ runner.os }}-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Cache Cargo target
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: target-${{ github.job }}-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Run OpenSSL tests (Windows only)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cargo test -p openssl
+          cargo test -p openssl-errors
+        working-directory: src-tauri
