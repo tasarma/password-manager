@@ -55,6 +55,42 @@ Visit the [Releases](https://github.com/tasarma/password-manager/releases) page 
 
 > No internet access is required after installation.
 
+### Installation Instructions
+
+#### Windows
+
+1. Download the `.msi` installer.
+2. Open the Command Prompt (`cmd`).
+3. Navigate to the directory where the installer is located.
+4. Run the installer by typing its name, for example:
+```password-manager_0.1.0_x64-setup.exe```
+5. Follow the on-screen instructions to complete the installation.
+
+---
+
+#### macOS
+
+1. Download the `.dmg` file.
+2. Double-click it to open.
+3. Drag the application into your **Applications** folder.
+4. Launch it from the **Applications** folder.
+
+---
+
+#### Linux
+
+#### Using `.AppImage`
+
+1. Download the `.AppImage` file.
+2. Make it executable:
+```bash
+chmod +x password-manager_0.1.0_amd64.AppImage
+```
+3. Run it:
+```bash
+./password-manager_0.1.0_amd64.AppImage
+```
+   
 ---
 
 ## 🧑‍💻 Development
