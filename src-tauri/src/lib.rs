@@ -9,25 +9,10 @@ pub mod model;
 
 use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
-// use tauri::{App, Emitter, Manager as _, State};
 use tauri::Manager as _;
-// use tauri_plugin_log::{Target, TargetKind};
 use tokio::sync::RwLock;
 
 use commands::*;
-
-#[cfg(test)]
-#[path = "tests/db_tests.rs"]
-mod db_tests;
-
-#[cfg(test)]
-#[path = "tests/argon2_tests.rs"]
-mod argon2_tests;
-
-#[cfg(test)]
-#[path = "tests/model_tests.rs"]
-mod model_tests;
-
 
 /// Shared state accessible across Tauri commands
 

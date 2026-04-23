@@ -1,8 +1,5 @@
 use anyhow::{Context, Result};
-use argon2::{
-    self,
-    Algorithm, Argon2, ParamsBuilder, Version,
-};
+use argon2::{self, Algorithm, Argon2, ParamsBuilder, Version};
 use rand::rngs::OsRng;
 use rand::TryRngCore;
 use std::{fs, path::PathBuf};
@@ -40,7 +37,7 @@ impl KeyManager {
         match fs::read(&salt_path) {
             Ok(salt) => Ok(salt),
             Err(_) => {
-                let salt= Self::create_salt(app).await?;
+                let salt = Self::create_salt(app).await?;
                 Ok(salt)
             }
         }
@@ -85,5 +82,27 @@ impl KeyManager {
         let key: [u8; Self::LEN_ENCRYPTION_KEY] =
             Self::derive_encryption_key(master_password, &salt)?;
         Ok(key)
+    }
+}
+
+#[cfg(test)]
+mod argon2_tests {
+    use crate::argon2_key_derivation::KeyManager;
+
+    #[test]
+    fn test_derive_encryption_key() {
+        // Arrange
+        let master_password = "my-secret-password";
+        let salt = b"static-test-salt12";
+
+        // Act
+        let key1 = KeyManager::derive_encryption_key(master_password, salt)
+            .expect("Key derivation failed");
+        let key2 = KeyManager::derive_encryption_key(master_password, salt)
+            .expect("Key derivation failed");
+
+        // Assert
+        assert_eq!(key1.len(), 32, "Derived key must be 32 bytes");
+        assert_eq!(key1, key2, "Same password and salt must produce same key");
     }
 }
