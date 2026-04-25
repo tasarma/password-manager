@@ -1,6 +1,9 @@
-use crate::model::PasswordEntry;
-use crate::AppState;
-use crate::{argon2_key_derivation::KeyManager, db::DBManager};
+use crate::{
+    argon2_key_derivation::KeyManager,
+    db::DBManager,
+    model::{EncryptionKey, PasswordEntry},
+    start::AppState,
+};
 use chrono::Utc;
 use futures::TryStreamExt;
 use tauri::{AppHandle, State};
@@ -37,11 +40,15 @@ pub async fn register(
             .map_err(|e| format!("Can't store the hash {}", e))?;
     }
 
-    let mut pool_lock = state.pool.write().await;
-    *pool_lock = Some(pool);
+    {
+        let mut guard = state.pool.write().await;
+        *guard = Some(pool);
+    }
 
-    let mut key_lock = state.encryption_key.write().await;
-    *key_lock = Some(key);
+    {
+        let mut guard = state.encryption_key.write().await;
+        *guard = Some(key.into());
+    }
 
     Ok(())
 }
@@ -60,16 +67,20 @@ pub async fn login(
         .await
         .map_err(|_e| "Invalid Password")?;
 
-    let mut pool_lock = state.pool.write().await;
-    *pool_lock = Some(pool);
+    {
+        let mut guard = state.pool.write().await;
+        *guard = Some(pool);
+    }
 
     let key: [u8; KeyManager::LEN_ENCRYPTION_KEY] =
         KeyManager::get_encryption_key(&app, &master_password)
             .await
             .map_err(|e| format!("Failed to get encryption key: {}", e))?;
 
-    let mut key_lock = state.encryption_key.write().await;
-    *key_lock = Some(key);
+    {
+        let mut guard = state.encryption_key.write().await;
+        *guard = Some(key.into());
+    }
 
     Ok(())
 }
@@ -105,10 +116,8 @@ pub async fn add_password(
         }
     }
 
-    let encryption_key = state.encryption_key.read().await;
-    let encryption_key = encryption_key
-        .as_ref()
-        .ok_or("Encryption key not initialized")?;
+    let guard = state.encryption_key.read().await;
+    let encryption_key = guard.as_ref().ok_or("Encryption key not initialized")?;
 
     let (ciphertext, nonce) =
         PasswordEntry::encrypt_password(&password, encryption_key).map_err(|e| e.to_string())?;
