@@ -42,6 +42,11 @@ pub struct PasswordEntry {
     pub nonce: Option<String>,
 }
 
+pub struct CipherBundle {
+    pub cipher_text: String,
+    pub nonce_bytes: String,
+}
+
 /// ZeroizeOnDrop ensures the key is wiped from RAM when dropped.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct EncryptionKey([u8; KEY_LENGTH]);
@@ -69,24 +74,27 @@ impl PasswordEntry {
     pub fn encrypt_password(
         password: &str,
         encryption_key: &EncryptionKey,
-    ) -> AppResult<(String, Option<String>)> {
+    ) -> AppResult<CipherBundle> {
         let cipher = Aes256Gcm::new_from_slice(encryption_key.as_ref())
             .map_err(|e| AppError::Encryption(format!("Invalid key length: {}", e)))?;
 
-        let mut nonce_bytes = [0u8; NONCE_LENGTH];
+        let mut nonce_b64 = [0u8; NONCE_LENGTH];
         OsRng
-            .try_fill_bytes(&mut nonce_bytes)
+            .try_fill_bytes(&mut nonce_b64)
             .map_err(|e| AppError::Encryption(format!("RNG failure: {}", e)))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_b64);
 
-        let ciphertext = cipher
+        let cipher_text_b64 = cipher
             .encrypt(nonce, password.as_bytes())
             .map_err(|e| AppError::Encryption(format!("Encryption failed: {}", e)))?;
 
-        Ok((
-            general_purpose::STANDARD.encode(ciphertext),
-            Some(general_purpose::STANDARD.encode(nonce_bytes)),
-        ))
+        let cipher_text = general_purpose::STANDARD.encode(cipher_text_b64);
+        let nonce_bytes = general_purpose::STANDARD.encode(nonce_b64);
+
+        Ok(CipherBundle {
+            cipher_text,
+            nonce_bytes,
+        })
     }
 
     pub fn decrypt_password(
@@ -131,17 +139,15 @@ mod tests {
         let original_password = "super_secret_password";
 
         // Act
-        let (cipthertext, nonce) =
-            PasswordEntry::encrypt_password(original_password, &key).unwrap();
+        let cb = PasswordEntry::encrypt_password(original_password, &key).unwrap();
 
-        let nonce = nonce.unwrap();
-        let decoded_nonce = general_purpose::STANDARD.decode(&nonce).unwrap();
+        let decoded_nonce = general_purpose::STANDARD.decode(&cb.nonce_bytes).unwrap();
 
         let decrypted_password =
-            PasswordEntry::decrypt_password(&cipthertext, &nonce, &key).unwrap();
+            PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key).unwrap();
 
         // Assert
-        assert!(cipthertext.len() > 0);
+        assert!(cb.cipher_text.len() > 0);
         assert!(decoded_nonce.len() == NONCE_LENGTH);
         assert_eq!(original_password, decrypted_password);
     }
@@ -154,10 +160,9 @@ mod tests {
         let original_password = "password123";
 
         // Act
-        let (cipthertext, nonce) =
-            PasswordEntry::encrypt_password(original_password, &key1).unwrap();
+        let cb = PasswordEntry::encrypt_password(original_password, &key1).unwrap();
 
-        let result = PasswordEntry::decrypt_password(&cipthertext, &nonce.unwrap(), &key2);
+        let result = PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key2);
 
         // Assert
         assert!(result.is_err());
@@ -170,17 +175,16 @@ mod tests {
         let original_password = "correct-horse-battery-staple";
 
         // Act
-        let (mut cipthertext, nonce) =
-            PasswordEntry::encrypt_password(original_password, &key).unwrap();
+        let mut cb = PasswordEntry::encrypt_password(original_password, &key).unwrap();
 
         // Tamper with the ciphertext (simulate corruption)
         let mut bytes = base64::engine::general_purpose::STANDARD
-            .decode(&cipthertext)
+            .decode(&cb.cipher_text)
             .unwrap();
         bytes[0] ^= 0xFF; // flip a bit
-        cipthertext = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        cb.cipher_text = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-        let result = PasswordEntry::decrypt_password(&cipthertext, &nonce.unwrap(), &key);
+        let result = PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key);
 
         // Assert
         assert!(result.is_err());
@@ -193,10 +197,10 @@ mod tests {
         let password = "unique-nonce-test";
 
         // Act
-        let (_, nonce1) = PasswordEntry::encrypt_password(password, &key).unwrap();
-        let (_, nonce2) = PasswordEntry::encrypt_password(password, &key).unwrap();
+        let cb_1 = PasswordEntry::encrypt_password(password, &key).unwrap();
+        let cb_2 = PasswordEntry::encrypt_password(password, &key).unwrap();
 
         // Assert
-        assert_ne!(nonce1, nonce2);
+        assert_ne!(cb_1.nonce_bytes, cb_2.nonce_bytes);
     }
 }

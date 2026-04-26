@@ -1,8 +1,5 @@
 use crate::{
-    argon2_key_derivation::KeyManager,
-    db::DBManager,
-    model::{EncryptionKey, PasswordEntry},
-    start::AppState,
+    argon2_key_derivation::KeyManager, db::DBManager, model::PasswordEntry, start::AppState,
 };
 use chrono::Utc;
 use futures::TryStreamExt;
@@ -119,7 +116,7 @@ pub async fn add_password(
     let guard = state.encryption_key.read().await;
     let encryption_key = guard.as_ref().ok_or("Encryption key not initialized")?;
 
-    let (ciphertext, nonce) =
+    let cipher_bundle =
         PasswordEntry::encrypt_password(&password, encryption_key).map_err(|e| e.to_string())?;
 
     let pool = state.pool.write().await;
@@ -135,13 +132,13 @@ pub async fn add_password(
     .bind(id)
     .bind(title)
     .bind(username)
-    .bind(ciphertext)
+    .bind(cipher_bundle.cipher_text)
     .bind(url)
     .bind(notes)
     .bind(created_at.timestamp())
     .bind(None::<i64>)
     .bind(false)
-    .bind(nonce)
+    .bind(cipher_bundle.nonce_bytes)
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to add password to database: {}", e))?;
@@ -243,7 +240,7 @@ pub async fn update_password(
         .as_ref()
         .ok_or("Encryption key not initialized")?;
 
-    let (encrypted_password, nonce) =
+    let cipher_bundle =
         PasswordEntry::encrypt_password(&password, encryption_key).map_err(|e| e.to_string())?;
 
     sqlx::query(
@@ -251,11 +248,11 @@ pub async fn update_password(
    )
    .bind(title)
    .bind(username)
-   .bind(encrypted_password)
+   .bind(cipher_bundle.cipher_text)
    .bind(url)
    .bind(notes)
    .bind(updated_at.timestamp())
-   .bind(nonce)
+   .bind(cipher_bundle.nonce_bytes)
    .bind(id)
    .execute(pool)
    .await
