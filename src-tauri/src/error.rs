@@ -11,9 +11,11 @@ use thiserror::Error;
 /// `Result<T, E>` where `E: Serialize`.
 #[derive(Debug, Error, Serialize)]
 pub enum AppError {
-    /// An encryption or decryption operation failed.
     #[error("Encryption error: {0}")]
     Encryption(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

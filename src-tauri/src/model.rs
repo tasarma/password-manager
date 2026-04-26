@@ -3,7 +3,6 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
 use rand::rngs::OsRng;
@@ -71,10 +70,7 @@ impl From<[u8; KEY_LENGTH]> for EncryptionKey {
 
 impl PasswordEntry {
     #[tracing::instrument(name = "Encrypt a password before saving in the database", skip_all)]
-    pub fn encrypt_password(
-        password: &str,
-        encryption_key: &EncryptionKey,
-    ) -> AppResult<CipherBundle> {
+    pub fn encrypt(password: &str, encryption_key: &EncryptionKey) -> AppResult<CipherBundle> {
         let cipher = Aes256Gcm::new_from_slice(encryption_key.as_ref())
             .map_err(|e| AppError::Encryption(format!("Invalid key length: {}", e)))?;
 
@@ -97,25 +93,31 @@ impl PasswordEntry {
         })
     }
 
-    pub fn decrypt_password(
-        ciphertext: &str,
+    pub fn decrypt(
+        cipher_text: &str,
         nonce: &str,
         encryption_key: &EncryptionKey,
-    ) -> Result<String> {
+    ) -> AppResult<String> {
         let cipher = Aes256Gcm::new_from_slice(encryption_key.as_ref())
-            .map_err(|e| anyhow::anyhow!("Failed to create cipher: {}", e))?;
+            .map_err(|e| AppError::Encryption(format!("Failed to initialise Cipher: {}", e)))?;
 
-        let nonce_bytes = general_purpose::STANDARD.decode(nonce)?;
+        let nonce_bytes = general_purpose::STANDARD
+            .decode(nonce)
+            .map_err(|_| AppError::Validation("Invalid nonce encoding".into()))?;
 
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let ciphertext = general_purpose::STANDARD.decode(ciphertext)?;
+        let cipher_text = general_purpose::STANDARD
+            .decode(cipher_text)
+            .map_err(|_| AppError::Validation("Invalid ciphertext encoding.".into()))?;
 
         let plaintext = cipher
-            .decrypt(nonce, ciphertext.as_ref())
-            .map_err(|e| anyhow::anyhow!("Failed to decrypt password: {}", e))?;
+            .decrypt(nonce, cipher_text.as_ref())
+            .map_err(|_| AppError::Encryption("Decryption failed or data corrupted".into()))?;
 
-        Ok(String::from_utf8(plaintext)
-            .map_err(|e| anyhow::anyhow!("Failed to convert to string: {}", e))?)
+        let password = String::from_utf8(plaintext)
+            .map_err(|_| AppError::Validation("Decrypted data is not valid UTF-8".into()))?;
+
+        Ok(password)
     }
 }
 
@@ -139,12 +141,12 @@ mod tests {
         let original_password = "super_secret_password";
 
         // Act
-        let cb = PasswordEntry::encrypt_password(original_password, &key).unwrap();
+        let cb = PasswordEntry::encrypt(original_password, &key).unwrap();
 
         let decoded_nonce = general_purpose::STANDARD.decode(&cb.nonce_bytes).unwrap();
 
         let decrypted_password =
-            PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key).unwrap();
+            PasswordEntry::decrypt(&cb.cipher_text, &cb.nonce_bytes, &key).unwrap();
 
         // Assert
         assert!(cb.cipher_text.len() > 0);
@@ -160,9 +162,9 @@ mod tests {
         let original_password = "password123";
 
         // Act
-        let cb = PasswordEntry::encrypt_password(original_password, &key1).unwrap();
+        let cb = PasswordEntry::encrypt(original_password, &key1).unwrap();
 
-        let result = PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key2);
+        let result = PasswordEntry::decrypt(&cb.cipher_text, &cb.nonce_bytes, &key2);
 
         // Assert
         assert!(result.is_err());
@@ -175,7 +177,7 @@ mod tests {
         let original_password = "correct-horse-battery-staple";
 
         // Act
-        let mut cb = PasswordEntry::encrypt_password(original_password, &key).unwrap();
+        let mut cb = PasswordEntry::encrypt(original_password, &key).unwrap();
 
         // Tamper with the ciphertext (simulate corruption)
         let mut bytes = base64::engine::general_purpose::STANDARD
@@ -184,7 +186,7 @@ mod tests {
         bytes[0] ^= 0xFF; // flip a bit
         cb.cipher_text = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-        let result = PasswordEntry::decrypt_password(&cb.cipher_text, &cb.nonce_bytes, &key);
+        let result = PasswordEntry::decrypt(&cb.cipher_text, &cb.nonce_bytes, &key);
 
         // Assert
         assert!(result.is_err());
@@ -197,8 +199,8 @@ mod tests {
         let password = "unique-nonce-test";
 
         // Act
-        let cb_1 = PasswordEntry::encrypt_password(password, &key).unwrap();
-        let cb_2 = PasswordEntry::encrypt_password(password, &key).unwrap();
+        let cb_1 = PasswordEntry::encrypt(password, &key).unwrap();
+        let cb_2 = PasswordEntry::encrypt(password, &key).unwrap();
 
         // Assert
         assert_ne!(cb_1.nonce_bytes, cb_2.nonce_bytes);

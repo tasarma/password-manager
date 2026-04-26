@@ -117,7 +117,7 @@ pub async fn add_password(
     let encryption_key = guard.as_ref().ok_or("Encryption key not initialized")?;
 
     let cipher_bundle =
-        PasswordEntry::encrypt_password(&password, encryption_key).map_err(|e| e.to_string())?;
+        PasswordEntry::encrypt(&password, encryption_key).map_err(|e| e.to_string())?;
 
     let pool = state.pool.write().await;
     let pool = pool.as_ref().ok_or("Database pool not initialized")?;
@@ -158,7 +158,7 @@ pub async fn get_passwords(
         .as_ref()
         .ok_or("Encryption key not initialized")?;
 
-    let mut passwords: Vec<PasswordEntry> =
+    let mut entries: Vec<PasswordEntry> =
         sqlx::query_as::<_, PasswordEntry>("SELECT * FROM passwords WHERE deleted = false")
             .fetch(pool)
             .try_collect()
@@ -167,16 +167,15 @@ pub async fn get_passwords(
 
     // Future Optimization
     // If the list grows, consider lazy-decrypting per-entry.
-    for password in &mut passwords {
-        if let Some(nonce) = &password.nonce {
-            let decrypted =
-                PasswordEntry::decrypt_password(&password.password, nonce, encryption_key)
-                    .map_err(|e| format!("Can't decrypt password: {}", e))?;
-            password.password = decrypted;
+    for entry in &mut entries {
+        if let Some(nonce) = &entry.nonce {
+            let decrypted = PasswordEntry::decrypt(&entry.password, nonce, encryption_key)
+                .map_err(|e| format!("Can't decrypt password: {}", e))?;
+            entry.password = decrypted;
         }
     }
 
-    Ok(passwords)
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -202,7 +201,7 @@ pub async fn get_password_by_id(
 
     // Decrypt password before returning
     if let Some(nonce) = &password.nonce {
-        let decrypted = PasswordEntry::decrypt_password(&password.password, nonce, encryption_key)
+        let decrypted = PasswordEntry::decrypt(&password.password, nonce, encryption_key)
             .map_err(|e| format!("Failed to decrypt password: {}", e))?;
         password.password = decrypted;
     }
@@ -241,7 +240,7 @@ pub async fn update_password(
         .ok_or("Encryption key not initialized")?;
 
     let cipher_bundle =
-        PasswordEntry::encrypt_password(&password, encryption_key).map_err(|e| e.to_string())?;
+        PasswordEntry::encrypt(&password, encryption_key).map_err(|e| e.to_string())?;
 
     sqlx::query(
        "UPDATE passwords SET title=?1, username=?2, password=?3, url=?4, notes=?5, updated_at=?6, nonce=?7 WHERE id = ?8",
