@@ -17,6 +17,60 @@ const NONCE_LENGTH: usize = 12;
 /// Expected length of an AES-256 key in bytes.
 const KEY_LENGTH: usize = 32;
 
+/// The output of a successful encryption: base64-encoded ciphertext and nonce.
+///
+/// Both are stored as `String` because they are written to SQLite TEXT columns.
+/// The nonce is always present after encryption, so it is not `Option`.
+pub struct CipherBundle {
+    cipher_text: String,
+    nonce_bytes: String,
+}
+
+impl CipherBundle {
+    pub fn get_cipher_text(&self) -> &str {
+        &self.cipher_text
+    }
+
+    pub fn get_nonce(&self) -> &str {
+        &self.nonce_bytes
+    }
+}
+
+/// A 32-byte AES-256 encryption key derived from the master password via Argon2.
+///
+/// The newtype pattern serves two purposes:
+///
+/// 1. **Type safety** — the compiler prevents accidentally passing a random
+///    `[u8; 32]` (e.g., a nonce buffer) where an encryption key is expected.
+/// 2. **Guaranteed zeroization** — `ZeroizeOnDrop` ensures the key bytes is
+///    wiped from RAM when dropped. Without this, old key material
+///    lingers in heap memory until the allocator happens to reuse it.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct EncryptionKey([u8; KEY_LENGTH]);
+
+impl EncryptionKey {
+    pub fn new() -> Self {
+        Self([0u8; KEY_LENGTH])
+    }
+}
+
+impl AsRef<[u8]> for EncryptionKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<[u8; KEY_LENGTH]> for EncryptionKey {
+    fn from(value: [u8; KEY_LENGTH]) -> Self {
+        EncryptionKey(value)
+    }
+}
+
+/// A password entry as stored in the database and returned to the frontend.
+///
+/// Note: `nonce` is skipped during serialization (`serde(skip)`) so it is
+/// never exposed to the TypeScript frontend. It is fetched from the DB solely
+/// to perform decryption before the entry is returned.
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct PasswordEntry {
     pub id: String,
@@ -41,45 +95,21 @@ pub struct PasswordEntry {
     pub nonce: String,
 }
 
-pub struct CipherBundle {
-    cipher_text: String,
-    nonce_bytes: String,
-}
-
-impl CipherBundle {
-    pub fn get_cipher_text(&self) -> &str {
-        &self.cipher_text
-    }
-
-    pub fn get_nonce(&self) -> &str {
-        &self.nonce_bytes
-    }
-}
-
-/// ZeroizeOnDrop ensures the key is wiped from RAM when dropped.
-#[derive(Zeroize, ZeroizeOnDrop)]
-pub struct EncryptionKey([u8; KEY_LENGTH]);
-
-impl EncryptionKey {
-    pub fn new() -> Self {
-        Self([0u8; KEY_LENGTH])
-    }
-}
-
-impl AsRef<[u8]> for EncryptionKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl From<[u8; KEY_LENGTH]> for EncryptionKey {
-    fn from(value: [u8; KEY_LENGTH]) -> Self {
-        EncryptionKey(value)
-    }
-}
-
 impl PasswordEntry {
-    #[tracing::instrument(name = "Encrypt a password before saving in the database", skip_all)]
+    /// Encrypt a plaintext password using AES-256-GCM.
+    ///
+    /// A cryptographically random 96-bit nonce is generated for every call,
+    /// ensuring that encrypting the same password twice produces different
+    /// ciphertext — a requirement for GCM semantic security.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if nonce generation or AES-GCM encryption fails.
+    #[tracing::instrument(
+        name = "Encrypt a password before saving in the database",
+        skip_all,
+        fields(cipher = "AES-256-GCM")
+    )]
     pub fn encrypt(password: &str, encryption_key: &EncryptionKey) -> AppResult<CipherBundle> {
         let cipher = Aes256Gcm::new_from_slice(encryption_key.as_ref())
             .map_err(|e| AppError::Encryption(format!("Invalid key length: {}", e)))?;
@@ -103,6 +133,17 @@ impl PasswordEntry {
         })
     }
 
+    /// Decrypt an AES-256-GCM ciphertext using the provided key and nonce.
+    ///
+    /// Both `ciphertext_b64` and `nonce_b64` must be valid standard base64.
+    /// The GCM authentication tag is verified during decryption; any
+    /// tampering with the ciphertext will cause this function to return `Err`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if base64 decoding, AES-GCM decryption (including
+    /// authentication tag verification), or UTF-8 decoding of the plaintext fails.
+    #[tracing::instrument(name = "Decrypt a password", skip_all, fields(cipher = "AES-256-GCM"))]
     pub fn decrypt(
         cipher_text: &str,
         nonce: &str,
