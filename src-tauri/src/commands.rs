@@ -132,13 +132,13 @@ pub async fn add_password(
     .bind(id)
     .bind(title)
     .bind(username)
-    .bind(cipher_bundle.cipher_text)
+    .bind(cipher_bundle.get_cipher_text())
     .bind(url)
     .bind(notes)
     .bind(created_at.timestamp())
     .bind(None::<i64>)
     .bind(false)
-    .bind(cipher_bundle.nonce_bytes)
+    .bind(cipher_bundle.get_nonce())
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to add password to database: {}", e))?;
@@ -168,11 +168,9 @@ pub async fn get_passwords(
     // Future Optimization
     // If the list grows, consider lazy-decrypting per-entry.
     for entry in &mut entries {
-        if let Some(nonce) = &entry.nonce {
-            let decrypted = PasswordEntry::decrypt(&entry.password, nonce, encryption_key)
-                .map_err(|e| format!("Can't decrypt password: {}", e))?;
-            entry.password = decrypted;
-        }
+        let decrypted = PasswordEntry::decrypt(&entry.password, &entry.nonce, encryption_key)
+            .map_err(|e| format!("Can't decrypt password: {}", e))?;
+        entry.password = decrypted;
     }
 
     Ok(entries)
@@ -191,7 +189,7 @@ pub async fn get_password_by_id(
         .as_ref()
         .ok_or("Encryption key not initialized")?;
 
-    let mut password: PasswordEntry = sqlx::query_as::<_, PasswordEntry>(
+    let mut entry: PasswordEntry = sqlx::query_as::<_, PasswordEntry>(
         "SELECT * FROM passwords WHERE deleted = false and id = ?1",
     )
     .bind(id)
@@ -200,13 +198,11 @@ pub async fn get_password_by_id(
     .map_err(|e| format!("Failed to get password by id {}", e))?;
 
     // Decrypt password before returning
-    if let Some(nonce) = &password.nonce {
-        let decrypted = PasswordEntry::decrypt(&password.password, nonce, encryption_key)
-            .map_err(|e| format!("Failed to decrypt password: {}", e))?;
-        password.password = decrypted;
-    }
+    let decrypted = PasswordEntry::decrypt(&entry.password, &entry.nonce, encryption_key)
+        .map_err(|e| format!("Failed to decrypt password: {}", e))?;
+    entry.password = decrypted;
 
-    Ok(password)
+    Ok(entry)
 }
 
 #[tauri::command]
@@ -247,11 +243,11 @@ pub async fn update_password(
    )
    .bind(title)
    .bind(username)
-   .bind(cipher_bundle.cipher_text)
+   .bind(cipher_bundle.get_cipher_text())
    .bind(url)
    .bind(notes)
    .bind(updated_at.timestamp())
-   .bind(cipher_bundle.nonce_bytes)
+   .bind(cipher_bundle.get_nonce())
    .bind(id)
    .execute(pool)
    .await

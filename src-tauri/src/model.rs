@@ -38,12 +38,22 @@ pub struct PasswordEntry {
     pub deleted: bool,
     #[sqlx(default)]
     #[serde(skip)]
-    pub nonce: Option<String>,
+    pub nonce: String,
 }
 
 pub struct CipherBundle {
-    pub cipher_text: String,
-    pub nonce_bytes: String,
+    cipher_text: String,
+    nonce_bytes: String,
+}
+
+impl CipherBundle {
+    pub fn get_cipher_text(&self) -> &str {
+        &self.cipher_text
+    }
+
+    pub fn get_nonce(&self) -> &str {
+        &self.nonce_bytes
+    }
 }
 
 /// ZeroizeOnDrop ensures the key is wiped from RAM when dropped.
