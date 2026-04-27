@@ -1,5 +1,5 @@
 use crate::{
-    argon2_key_derivation::KeyManager, db::DBManager, model::PasswordEntry, start::AppState,
+    argon2_key_derivation::get_encryption_key, db::DBManager, model::PasswordEntry, start::AppState,
 };
 use chrono::Utc;
 use futures::TryStreamExt;
@@ -27,7 +27,7 @@ pub async fn register(
         .await
         .map_err(|e| e.to_string())?;
 
-    let key = KeyManager::get_encryption_key(&app, &master_password)
+    let key = get_encryption_key(&app, &master_password)
         .await
         .map_err(|e| format!("Invalid password {}", e))?;
 
@@ -69,10 +69,9 @@ pub async fn login(
         *guard = Some(pool);
     }
 
-    let key: [u8; KeyManager::LEN_ENCRYPTION_KEY] =
-        KeyManager::get_encryption_key(&app, &master_password)
-            .await
-            .map_err(|e| format!("Failed to get encryption key: {}", e))?;
+    let key = get_encryption_key(&app, &master_password)
+        .await
+        .map_err(|e| format!("Failed to get encryption key: {}", e))?;
 
     {
         let mut guard = state.encryption_key.write().await;

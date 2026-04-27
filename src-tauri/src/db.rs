@@ -7,7 +7,7 @@ use sqlx::{
 use std::{fs, path::PathBuf, str::FromStr};
 use tauri::{AppHandle, Manager as _};
 
-use crate::argon2_key_derivation::KeyManager;
+use crate::argon2_key_derivation::get_encryption_key;
 pub struct DBManager;
 
 impl DBManager {
@@ -133,7 +133,7 @@ impl DBManager {
 
     pub async fn store_master_password_hash(
         pool: &SqlitePool,
-        derived_encryption_key: &[u8; KeyManager::LEN_ENCRYPTION_KEY],
+        derived_encryption_key: &[u8],
     ) -> Result<()> {
         // Stores the derived encryption key from Argon2 (not the raw password hash)
         sqlx::query(
@@ -159,18 +159,17 @@ impl DBManager {
 
         match row {
             Some(row) => {
-                let stored_key_bytes: Vec<u8> = row
+                let stored_key_bytes: &[u8] = row
                     .try_get("password_hash")
                     .context("Failed to get 'password_hash' column from row")?;
 
-                let stored_key: [u8; KeyManager::LEN_ENCRYPTION_KEY] = stored_key_bytes
+                let stored_key = stored_key_bytes
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("Stored key has invalid length"))?;
 
-                let re_derived_key: [u8; KeyManager::LEN_ENCRYPTION_KEY] =
-                    KeyManager::get_encryption_key(app, master_password)
-                        .await
-                        .context("Failed to re-derive key for verification")?;
+                let re_derived_key = get_encryption_key(app, master_password)
+                    .await
+                    .context("Failed to re-derive key for verification")?;
 
                 let is_match = re_derived_key == stored_key;
 

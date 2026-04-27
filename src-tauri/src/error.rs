@@ -16,6 +16,9 @@ pub enum AppError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    #[error("Key derivation error: {0}")]
+    KeyDerivation(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

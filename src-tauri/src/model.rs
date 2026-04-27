@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::error::{AppError, AppResult};
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -9,13 +11,13 @@ use rand::rngs::OsRng;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Length of the AES-GCM nonce in bytes (96 bits, as recommended by NIST).
 const NONCE_LENGTH: usize = 12;
 
 /// Expected length of an AES-256 key in bytes.
-const KEY_LENGTH: usize = 32;
+pub const KEY_LENGTH: usize = 32;
 
 /// The output of a successful encryption: base64-encoded ciphertext and nonce.
 ///
@@ -45,17 +47,19 @@ impl CipherBundle {
 /// 2. **Guaranteed zeroization** — `ZeroizeOnDrop` ensures the key bytes is
 ///    wiped from RAM when dropped. Without this, old key material
 ///    lingers in heap memory until the allocator happens to reuse it.
-#[derive(Zeroize, ZeroizeOnDrop)]
+#[derive(Zeroize, ZeroizeOnDrop, PartialEq)]
 pub struct EncryptionKey([u8; KEY_LENGTH]);
 
 impl EncryptionKey {
-    pub fn new() -> Self {
-        Self([0u8; KEY_LENGTH])
+    pub fn new(key: [u8; KEY_LENGTH]) -> Self {
+        Self(key)
     }
 }
 
-impl AsRef<[u8]> for EncryptionKey {
-    fn as_ref(&self) -> &[u8] {
+impl Deref for EncryptionKey {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
@@ -63,6 +67,27 @@ impl AsRef<[u8]> for EncryptionKey {
 impl From<[u8; KEY_LENGTH]> for EncryptionKey {
     fn from(value: [u8; KEY_LENGTH]) -> Self {
         EncryptionKey(value)
+    }
+}
+
+impl TryFrom<&[u8]> for EncryptionKey {
+    type Error = String;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != KEY_LENGTH {
+            return Err("Invalid key length".into());
+        }
+
+        let mut key = Zeroizing::new([0u8; KEY_LENGTH]);
+        key.copy_from_slice(value);
+
+        Ok(EncryptionKey::new(*key))
+    }
+}
+
+impl std::fmt::Debug for EncryptionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EncryptionKey([REDACTED])")
     }
 }
 
