@@ -7,7 +7,10 @@ use sqlx::{
 use std::{fs, path::PathBuf, str::FromStr};
 use tauri::{AppHandle, Manager as _};
 
-use crate::argon2_key_derivation::get_encryption_key;
+use crate::{
+    argon2_key_derivation::get_encryption_key,
+    error::{AppError, AppResult},
+};
 pub struct DBManager;
 
 impl DBManager {
@@ -25,27 +28,29 @@ impl DBManager {
         Ok(())
     }
 
-    pub async fn delete_db_directory(app: &AppHandle) -> Result<(), anyhow::Error> {
+    pub async fn delete_db_directory(app: &AppHandle) -> AppResult<()> {
         let db_dir = app
             .path()
             .app_data_dir()
-            .context("Failed to retrieve application data directory")?;
+            .map_err(|_| AppError::Io("No app directory".into()))?;
 
         if db_dir.exists() {
             fs::remove_dir_all(&db_dir)
-                .with_context(|| format!("Failed to delete database directory at {:?}", db_dir))?;
+                .map_err(|_| AppError::Io("Failed to delete database directory".into()))?;
         }
 
         Ok(())
     }
 
-    async fn create_db_file(app: &AppHandle) -> Result<PathBuf, anyhow::Error> {
-        let db_dir = app
-            .path()
-            .app_data_dir()
-            .context("Failed to retrieve application data directory to create database file")?;
+    async fn create_db_file(app: &AppHandle) -> AppResult<PathBuf> {
+        let db_dir = app.path().app_data_dir().map_err(|_| {
+            AppError::Validation(
+                "Failed to retrieve application data directory to create database file".into(),
+            )
+        })?;
 
-        std::fs::create_dir_all(&db_dir).context("Failed to create directory for database")?;
+        std::fs::create_dir_all(&db_dir)
+            .map_err(|_| AppError::Io("Failed to create directory for database".into()))?;
         let db_path = db_dir.join(DBManager::DB_NAME);
 
         Ok(db_path)
@@ -56,21 +61,24 @@ impl DBManager {
         Ok(db_path.exists())
     }
 
-    pub async fn get_db_path(app: &AppHandle) -> Result<PathBuf> {
+    pub async fn get_db_path(app: &AppHandle) -> AppResult<PathBuf> {
         let db_dir = app
             .path()
             .app_data_dir()
-            .context("Failed to retrieve application data directory")?;
+            .map_err(|_| AppError::Io("Failed to retrieve application data directory".into()))?;
+
         let db_path = db_dir.join(DBManager::DB_NAME);
 
         Ok(db_path)
     }
 
-    async fn is_database_encrypted(db_path: &PathBuf) -> Result<bool> {
-        let db_uri = db_path.to_str().context("Invalid database path")?;
+    async fn is_database_encrypted(db_path: &PathBuf) -> AppResult<bool> {
+        let db_uri = db_path
+            .to_str()
+            .ok_or_else(|| AppError::Database("Invalid database path".into()))?;
 
         let options = SqliteConnectOptions::from_str(db_uri)
-            .context("Failed to parse database path")?
+            .map_err(|_| AppError::Database("Failed to parse database path".into()))?
             .create_if_missing(false);
 
         let pool_result = SqlitePoolOptions::new()
@@ -91,14 +99,16 @@ impl DBManager {
         }
     }
 
-    pub async fn connect_to_database_with_encryption(
+    pub async fn connect_with_encryption(
         db_path: &PathBuf,
         master_password: &str,
-    ) -> Result<SqlitePool> {
-        let db_uri = db_path.to_str().context("Invalid database path")?;
+    ) -> AppResult<SqlitePool> {
+        let db_uri = db_path
+            .to_str()
+            .ok_or_else(|| AppError::Validation("Invalid database path".into()))?;
 
         let options = SqliteConnectOptions::from_str(db_uri)
-            .context("Failed to parse database path")?
+            .map_err(|_| AppError::Validation("Failed to parse database path".into()))?
             .pragma("key", format!("'{}'", master_password.replace("'", "''")))
             .create_if_missing(true);
 
@@ -106,35 +116,38 @@ impl DBManager {
             .max_connections(DBManager::MAX_CONNECTIONS)
             .connect_with(options)
             .await
-            .context("Failed to connect to database")?;
+            .map_err(|_| AppError::Database("Failed to connect to database".into()))?;
 
-        Self::verify_database_connection(&pool)
-            .await
-            .context("Failed to verify password for encrypted database")?;
+        Self::verify_database_connection(&pool).await.map_err(|_| {
+            AppError::Validation("Failed to verify password for encrypted database".into())
+        })?;
 
         Ok(pool)
     }
 
-    async fn connect_to_database_without_encryption(db_path: &PathBuf) -> Result<SqlitePool> {
-        let db_uri = db_path.to_str().context("Invalid database path")?;
+    async fn connect_without_encryption(db_path: &PathBuf) -> AppResult<SqlitePool> {
+        let db_uri = db_path
+            .to_str()
+            .ok_or_else(|| AppError::Validation("Invalid database path".into()))?;
 
         let options = SqliteConnectOptions::from_str(db_uri)
-            .context("Failed to parse database path")?
+            .map_err(|_| AppError::Validation("Failed to parse database path".into()))?
             .create_if_missing(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(DBManager::MAX_CONNECTIONS)
             .connect_with(options)
             .await
-            .context("Failed to connect to unencrypted database")?;
-
+            .map_err(|_| {
+                AppError::Validation("Failed to verify password for unencrypted database".into())
+            })?;
         Ok(pool)
     }
 
     pub async fn store_master_password_hash(
         pool: &SqlitePool,
         derived_encryption_key: &[u8],
-    ) -> Result<()> {
+    ) -> AppResult<()> {
         // Stores the derived encryption key from Argon2 (not the raw password hash)
         sqlx::query(
             "INSERT OR REPLACE INTO master_password_hash (id, password_hash) VALUES (1, ?)",
@@ -142,7 +155,9 @@ impl DBManager {
         .bind(&derived_encryption_key[..])
         .execute(pool)
         .await
-        .context("Could not insert the encryption key into database")?;
+        .map_err(|_| {
+            AppError::Validation("Could not insert the encryption key into database".into())
+        })?;
 
         Ok(())
     }
@@ -151,25 +166,28 @@ impl DBManager {
         app: &AppHandle,
         pool: &SqlitePool,
         master_password: &str,
-    ) -> Result<bool> {
+    ) -> AppResult<bool> {
         let row = sqlx::query("SELECT password_hash FROM master_password_hash WHERE id = 1")
             .fetch_optional(pool)
             .await
-            .context("Failed to query password hash")?;
+            .map_err(|_| AppError::Database("Failed to query password hash".into()))?;
 
         match row {
             Some(row) => {
-                let stored_key_bytes: &[u8] = row
-                    .try_get("password_hash")
-                    .context("Failed to get 'password_hash' column from row")?;
+                let stored_key_bytes: &[u8] = row.try_get("password_hash").map_err(|_| {
+                    AppError::Database("Failed to get 'password_hash' column from row".into())
+                })?;
 
                 let stored_key = stored_key_bytes
                     .try_into()
-                    .map_err(|_| anyhow::anyhow!("Stored key has invalid length"))?;
+                    .map_err(|_| AppError::Database("Stored key has invalid length".into()))?;
 
-                let re_derived_key = get_encryption_key(app, master_password)
-                    .await
-                    .context("Failed to re-derive key for verification")?;
+                let re_derived_key =
+                    get_encryption_key(app, master_password)
+                        .await
+                        .map_err(|_| {
+                            AppError::Database("Failed to re-derive key for verification".into())
+                        })?;
 
                 let is_match = re_derived_key == stored_key;
 
@@ -183,17 +201,17 @@ impl DBManager {
         db_path: &PathBuf,
         master_password: &str,
         encrypt_db: bool,
-    ) -> Result<SqlitePool> {
+    ) -> AppResult<SqlitePool> {
         let pool = if encrypt_db {
-            Self::connect_to_database_with_encryption(db_path, master_password).await?
+            Self::connect_with_encryption(db_path, master_password).await?
         } else {
-            Self::connect_to_database_without_encryption(db_path).await?
+            Self::connect_without_encryption(db_path).await?
         };
 
         sqlx::migrate!("./migrations")
             .run(&pool)
             .await
-            .context("Failed to run database migrations")?;
+            .map_err(|_| AppError::Database("Failed to run database migrations".into()))?;
 
         Ok(pool)
     }
@@ -202,28 +220,25 @@ impl DBManager {
         app: &AppHandle,
         master_password: &str,
         encrypt_db: bool,
-    ) -> Result<SqlitePool, anyhow::Error> {
+    ) -> AppResult<SqlitePool> {
         let db_path = Self::create_db_file(app).await?;
         let pool = Self::setup_database(&db_path, master_password, encrypt_db).await?;
 
         Ok(pool)
     }
 
-    pub async fn login(
-        app: &AppHandle,
-        master_password: &str,
-    ) -> Result<SqlitePool, anyhow::Error> {
+    pub async fn login(app: &AppHandle, master_password: &str) -> AppResult<SqlitePool> {
         let db_path = Self::get_db_path(app).await?;
         let is_encrypted = Self::is_database_encrypted(&db_path).await?;
 
         let pool = if is_encrypted {
-            Self::connect_to_database_with_encryption(&db_path, master_password).await?
+            Self::connect_with_encryption(&db_path, master_password).await?
         } else {
-            let pool = Self::connect_to_database_without_encryption(&db_path).await?;
+            let pool = Self::connect_without_encryption(&db_path).await?;
 
             let is_valid = Self::verify_master_password(app, &pool, master_password).await?;
             if !is_valid {
-                return Err(anyhow::anyhow!("Invalid password"));
+                return Err(AppError::Validation("Invalid password".into()));
             }
 
             pool
@@ -278,7 +293,7 @@ mod db_tests {
         setup_encrypted_db(&db_path, correct_password).await;
 
         // Act
-        let result = DBManager::connect_to_database_with_encryption(&db_path, wrong_password).await;
+        let result = DBManager::connect_with_encryption(&db_path, wrong_password).await;
 
         // Assert
         assert!(
@@ -308,7 +323,7 @@ mod db_tests {
             .expect("Failed to insert test data");
 
         // Act
-        let login_pool = DBManager::connect_to_database_with_encryption(&db_path, password)
+        let login_pool = DBManager::connect_with_encryption(&db_path, password)
             .await
             .expect("Failed to login with correct password");
 

@@ -19,6 +19,18 @@ pub enum AppError {
 
     #[error("Key derivation error: {0}")]
     KeyDerivation(String),
+
+    #[error("System IO error: {0}")]
+    Io(String),
+
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Not authenticated. Please log in first.")]
+    NotAuthenticated,
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
